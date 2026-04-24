@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.11"
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Validate JSON manifests
+        run: |
+          python -m json.tool .codex-plugin/plugin.json >/dev/null
+          python -m json.tool .mcp.json >/dev/null
+          python -m json.tool .agents/plugins/marketplace.json >/dev/null
+          python -m json.tool package.json >/dev/null
+
+      - name: Check Node MCP server syntax
+        run: node --check scripts/mcp_server.mjs
+
+      - name: Instantiate Julia project
+        run: julia --startup-file=no --project=. -e 'using Pkg; Pkg.instantiate()'
+
+      - name: Load Julia worker
+        run: julia --startup-file=no --project=. -e 'include("scripts/pluto_worker.jl")' </dev/null
+
+      - name: Run plugin tests
+        run: uv run python scripts/test_plugin.py

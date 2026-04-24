@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "pluto-pair": {
+      "command": "node",
+      "args": [
+        "./scripts/mcp_server.mjs"
+      ]
+    }
+  }
+}

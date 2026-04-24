@@ -1,0 +1,25 @@
+{
+  "name": "pluto-pair-codex-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Codex plugin and MCP server for pairing with Pluto.jl notebooks.",
+  "type": "module",
+  "bin": {
+    "pluto-pair-mcp": "./scripts/mcp_server.mjs"
+  },
+  "scripts": {
+    "test": "uv run python scripts/test_plugin.py"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EzraCerpac/PlutoPair.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EzraCerpac/PlutoPair/issues"
+  },
+  "homepage": "https://github.com/EzraCerpac/PlutoPair#readme"
+}
