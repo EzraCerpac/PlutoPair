@@ -1,0 +1,10 @@
+[deps]
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+Pluto = "c3e4b0f8-55cb-11ea-2926-15256bba5781"
+
+[compat]
+HTTP = "1"
+JSON3 = "1"
+Pluto = "0.20"
+julia = "1.11"

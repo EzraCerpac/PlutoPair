@@ -1,0 +1,43 @@
+{
+  "name": "pluto-pair",
+  "version": "0.1.0",
+  "description": "Pair Codex with Pluto.jl notebooks through live-session and headless MCP tools.",
+  "author": {
+    "name": "Ezra Cerpac",
+    "email": "ezracerpac@users.noreply.github.com",
+    "url": "https://github.com/EzraCerpac"
+  },
+  "homepage": "https://github.com/EzraCerpac/PlutoPair",
+  "repository": "https://github.com/EzraCerpac/PlutoPair",
+  "license": "MIT",
+  "keywords": [
+    "pluto",
+    "julia",
+    "notebook",
+    "mcp",
+    "pair"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Pluto Pair",
+    "shortDescription": "Inspect and drive Pluto.jl notebooks from Codex.",
+    "longDescription": "Pair Codex with visible Pluto.jl sessions or open notebooks headlessly, list @bind controls, set bond values reactively, read compact notebook state, and export rendered HTML.",
+    "developerName": "Ezra Cerpac",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/EzraCerpac/PlutoPair",
+    "privacyPolicyURL": "https://github.com/EzraCerpac/PlutoPair",
+    "termsOfServiceURL": "https://github.com/EzraCerpac/PlutoPair",
+    "defaultPrompt": [
+      "Pair with the running Pluto notebook on port 1234.",
+      "Open this Pluto notebook headlessly and list its controls.",
+      "Set Pluto @bind values and read the new output."
+    ],
+    "brandColor": "#9558B2"
+  }
+}
