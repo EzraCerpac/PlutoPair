@@ -150,7 +150,7 @@ def main():
     assert plugin_json["name"] == "pluto-pair"
     assert plugin_json["mcpServers"] == "./.mcp.json"
     load_json(ROOT / ".mcp.json")
-    load_json(pathlib.Path.home() / ".agents" / "plugins" / "marketplace.json")
+    load_json(ROOT / ".agents" / "plugins" / "marketplace.json")
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = pathlib.Path(tmp)
