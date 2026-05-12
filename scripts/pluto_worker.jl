@@ -296,18 +296,190 @@ function attached_send(att::AttachedNotebook, message_type::AbstractString, body
     error("Timed out waiting for Pluto WebSocket response to $(message_type)")
 end
 
-function select_option_token(path::AbstractString, bond_name::String, value::AbstractString)
-    text = read(path, String)
-    pattern = Regex("@bind\\s+$(bond_name)\\s+Select\\s*\\(\\s*\\[(.*?)\\]", "s")
-    match = Base.match(pattern, text)
-    isnothing(match) && return value
-    options_source = match.captures[1]
-    option_index = 1
-    for option in eachmatch(r":([A-Za-z_][A-Za-z0-9_!]*)\s*=>", options_source)
-        if option.captures[1] == value
-            return "puiselect-$(option_index)"
+function regex_escape(value::AbstractString)
+    replace(value, r"([][(){}.^$*+?|\\-])" => s"\\\1")
+end
+
+function is_puiselect_token(value::AbstractString)
+    !isnothing(match(r"^puiselect-[0-9]+$", value))
+end
+
+function normalized_select_alias(value::AbstractString)
+    stripped = strip(value)
+    startswith(stripped, ":") ? stripped[2:end] : stripped
+end
+
+function scan_until_select_arg_end(text::AbstractString, start_index::Integer)
+    parens = 0
+    brackets = 0
+    braces = 0
+    in_string = false
+    escaped = false
+    index = start_index
+    while index <= lastindex(text)
+        char = text[index]
+        if in_string
+            escaped = char == '\\' && !escaped
+            if char == '"' && !escaped
+                in_string = false
+            elseif char != '\\'
+                escaped = false
+            end
+        elseif char == '"'
+            in_string = true
+        elseif char == '('
+            parens += 1
+        elseif char == ')'
+            if parens == 0 && brackets == 0 && braces == 0
+                return prevind(text, index)
+            end
+            parens -= 1
+        elseif char == '['
+            brackets += 1
+        elseif char == ']'
+            brackets -= 1
+        elseif char == '{'
+            braces += 1
+        elseif char == '}'
+            braces -= 1
+        elseif (char == ',' || char == ';') && parens == 0 && brackets == 0 && braces == 0
+            return prevind(text, index)
         end
-        option_index += 1
+        index = nextind(text, index)
+    end
+    return lastindex(text)
+end
+
+function scan_balanced_brackets(text::AbstractString, open_index::Integer)
+    depth = 0
+    in_string = false
+    escaped = false
+    body_start = nextind(text, open_index)
+    index = open_index
+    while index <= lastindex(text)
+        char = text[index]
+        if in_string
+            escaped = char == '\\' && !escaped
+            if char == '"' && !escaped
+                in_string = false
+            elseif char != '\\'
+                escaped = false
+            end
+        elseif char == '"'
+            in_string = true
+        elseif char == '['
+            depth += 1
+        elseif char == ']'
+            depth -= 1
+            if depth == 0
+                return text[body_start:prevind(text, index)]
+            end
+        end
+        index = nextind(text, index)
+    end
+    return nothing
+end
+
+function select_argument_source(text::AbstractString, bond_name::String)
+    pattern = Regex("@bind\\s+$(regex_escape(bond_name))\\s+Select\\s*\\(")
+    matched = match(pattern, text)
+    isnothing(matched) && return nothing
+    start_index = nextind(text, matched.offset + ncodeunits(matched.match) - 1)
+    end_index = scan_until_select_arg_end(text, start_index)
+    end_index < start_index && return ""
+    strip(text[start_index:end_index])
+end
+
+function assigned_vector_source(text::AbstractString, variable_name::AbstractString)
+    pattern = Regex("(?m)^\\s*(?:const\\s+)?$(regex_escape(variable_name))\\s*=\\s*\\[")
+    matched = match(pattern, text)
+    isnothing(matched) && return nothing
+    open_index = matched.offset + ncodeunits(matched.match) - 1
+    scan_balanced_brackets(text, open_index)
+end
+
+function select_options_source(text::AbstractString, bond_name::String)
+    argument = select_argument_source(text, bond_name)
+    isnothing(argument) && return nothing
+    if startswith(argument, "[")
+        return scan_balanced_brackets(argument, firstindex(argument))
+    end
+    if !isnothing(match(r"^[A-Za-z_][A-Za-z0-9_!]*$", argument))
+        return assigned_vector_source(text, argument)
+    end
+    return ""
+end
+
+function unquote_julia_string(value::AbstractString)
+    stripped = strip(value)
+    startswith(stripped, "\"") && endswith(stripped, "\"") || return stripped
+    replace(stripped[2:prevind(stripped, lastindex(stripped))], "\\\"" => "\"", "\\\\" => "\\")
+end
+
+function static_select_keys(path::AbstractString, bond_name::String)
+    text = read(path, String)
+    options_source = select_options_source(text, bond_name)
+    isnothing(options_source) && return nothing
+    keys = String[]
+    for option in eachmatch(r"(:[A-Za-z_][A-Za-z0-9_!]*|\"(?:\\.|[^\"])*\")\s*=>", options_source)
+        raw = option.captures[1]
+        push!(keys, normalized_select_alias(unquote_julia_string(raw)))
+    end
+    if isempty(keys) && !occursin("=>", options_source)
+        for option in eachmatch(r":([A-Za-z_][A-Za-z0-9_]*)", options_source)
+            push!(keys, option.captures[1])
+        end
+        for option in eachmatch(r"\"((?:\\.|[^\"])*)\"", options_source)
+            push!(keys, unquote_julia_string("\"$(option.captures[1])\""))
+        end
+    end
+    return keys
+end
+
+function runtime_select_option_token(session, notebook, sym::Symbol, value::AbstractString)
+    requested = normalized_select_alias(value)
+    try
+        Pluto.WorkspaceManager.eval_fetch_in_workspace((session, notebook), quote
+            element = get(Main.PlutoRunner.registered_bond_elements, $(QuoteNode(sym)), nothing)
+            if element === nothing || !hasproperty(element, :options)
+                nothing
+            else
+                result = nothing
+                for (index, option) in enumerate(getproperty(element, :options))
+                    key = first(option)
+                    aliases = key isa Symbol ? (String(key), ":" * String(key)) : (string(key),)
+                    if $(requested) in aliases
+                        result = "puiselect-$(index)"
+                        break
+                    end
+                end
+                result
+            end
+        end)
+    catch
+        nothing
+    end
+end
+
+function select_option_token(path::AbstractString, bond_name::String, value::AbstractString; session=nothing, notebook=nothing, strict::Bool=false)
+    stripped = strip(value)
+    is_puiselect_token(stripped) && return stripped
+    sym = Symbol(bond_name)
+    if !isnothing(session) && !isnothing(notebook)
+        runtime_token = runtime_select_option_token(session, notebook, sym, stripped)
+        !isnothing(runtime_token) && return runtime_token
+    end
+    if isfile(path)
+        keys = static_select_keys(path, bond_name)
+        if !isnothing(keys)
+            requested = normalized_select_alias(stripped)
+            for (index, key) in enumerate(keys)
+                key == requested && return "puiselect-$(index)"
+            end
+            if strict || !isempty(keys)
+                error("Could not resolve Select value '$value' for bond '$bond_name'. Known values: $(join(keys, ", ")).")
+            end
+        end
     end
     return value
 end
@@ -705,7 +877,7 @@ function pluto_set_bonds(params)
         existing_bonds = get_any(state, "bonds", Dict())
         patches = Any[]
         for (name, value) in values
-            bond_value = value isa AbstractString && isfile(att.path) ? select_option_token(att.path, name, value) : value
+            bond_value = value isa AbstractString && isfile(att.path) ? select_option_token(att.path, name, value; strict=true) : value
             att.bonds[String(name)] = bond_value
             if haskey(existing_bonds, name)
                 push!(patches, Dict("op" => "replace", "path" => Any["bonds", name], "value" => Dict("value" => bond_value)))
@@ -739,7 +911,7 @@ function pluto_set_bonds(params)
     syms = Symbol[]
     for (name, value) in values
         sym = Symbol(name)
-        bond_value = value isa AbstractString ? select_option_token(notebook.path, name, value) : value
+        bond_value = value isa AbstractString ? select_option_token(notebook.path, name, value; session, notebook, strict=true) : value
         notebook.bonds[sym] = Dict("value" => bond_value)
         push!(syms, sym)
     end

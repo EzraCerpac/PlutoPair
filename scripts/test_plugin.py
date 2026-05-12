@@ -59,6 +59,39 @@ x * 2
     )
 
 
+def write_select_notebook(path):
+    path.write_text(
+        """### A Pluto.jl notebook ###
+# v0.20.26
+
+using Markdown
+using InteractiveUtils
+
+# ╔═╡ 8b223932-4b2f-4895-b344-c6b59c3c89e4
+using PlutoUI
+
+# ╔═╡ 7ab782d0-95ec-46d9-95dc-92e2f0df9a4f
+panel_options = [
+    :overview => "Overview",
+    :details => "Details",
+]
+
+# ╔═╡ c481a499-bba6-4803-bd89-56d4afc10e88
+@bind panel Select(panel_options; default=:overview)
+
+# ╔═╡ 8f35393e-2432-40f2-9dbd-a785985d1141
+string(panel)
+
+# ╔═╡ Cell order:
+# ╠═8b223932-4b2f-4895-b344-c6b59c3c89e4
+# ╠═7ab782d0-95ec-46d9-95dc-92e2f0df9a4f
+# ╠═c481a499-bba6-4803-bd89-56d4afc10e88
+# ╠═8f35393e-2432-40f2-9dbd-a785985d1141
+""",
+        encoding="utf-8",
+    )
+
+
 def free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -125,6 +158,18 @@ def test_live_server(tmp_path, notebook):
         bodies = [str(cell.get("output", {}).get("body", "")) for cell in updated["state"]["cells"]]
         assert any("16" in body for body in bodies), bodies
 
+        select_opened = call(worker, "pluto_open_visible", {"path": str(tmp_path / "select.jl"), "port": port}, timeout=180)
+        select_id = select_opened["notebook_id"]
+        select_bonds = call(worker, "pluto_list_bonds", {"notebook_id": select_id}, timeout=60)
+        assert "panel" in select_bonds["bond_names"]
+        selected = call(worker, "pluto_set_bonds", {"notebook_id": select_id, "values": {"panel": "details"}}, timeout=120)
+        assert selected["state"]["kind"] == "attached"
+        assert selected["state"]["bonds"]["panel"] == "puiselect-2"
+        select_bodies = [str(cell.get("output", {}).get("body", "")) for cell in selected["state"]["cells"]]
+        assert any("details" in body for body in select_bodies), select_bodies
+        select_closed = call(worker, "pluto_close_notebook", {"notebook_id": select_id}, timeout=60)
+        assert select_closed["detached_only"] is True
+
         exported = call(worker, "pluto_export_html", {"notebook_id": notebook_id, "output_path": str(tmp_path / "live.html")}, timeout=120)
         assert pathlib.Path(exported["output_path"]).exists()
         assert exported["bytes"] > 0
@@ -155,7 +200,9 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = pathlib.Path(tmp)
         notebook = tmp_path / "tiny.jl"
+        select_notebook = tmp_path / "select.jl"
         write_tiny_notebook(notebook)
+        write_select_notebook(select_notebook)
         worker = subprocess.Popen(
             ["julia", "--startup-file=no", f"--project={ROOT}", str(ROOT / "scripts" / "pluto_worker.jl")],
             cwd=ROOT,
@@ -167,8 +214,9 @@ def main():
         )
         try:
             listed = call(worker, "pluto_list_notebooks", {"root": str(tmp_path)})
-            assert listed["notebooks"][0]["path"] == str(notebook)
-            assert listed["notebooks"][0]["bonds"] == ["x"]
+            by_path = {entry["path"]: entry for entry in listed["notebooks"]}
+            assert by_path[str(notebook)]["bonds"] == ["x"]
+            assert by_path[str(select_notebook)]["bonds"] == ["panel"]
 
             opened = call(worker, "pluto_open_notebook", {"path": str(notebook), "execution_allowed": True}, timeout=180)
             notebook_id = opened["notebook_id"]
@@ -190,6 +238,27 @@ def main():
 
             closed = call(worker, "pluto_close_notebook", {"notebook_id": notebook_id})
             assert closed["closed"] is True
+
+            select_opened = call(worker, "pluto_open_notebook", {"path": str(select_notebook), "execution_allowed": True}, timeout=180)
+            select_id = select_opened["notebook_id"]
+            select_bonds = call(worker, "pluto_list_bonds", {"notebook_id": select_id}, timeout=60)
+            assert "panel" in select_bonds["bond_names"]
+
+            selected = call(worker, "pluto_set_bonds", {"notebook_id": select_id, "values": {"panel": "details"}}, timeout=120)
+            assert selected["state"]["bonds"]["panel"] == "puiselect-2"
+            select_bodies = [str(cell.get("output", {}).get("body", "")) for cell in selected["state"]["cells"]]
+            assert any("details" in body for body in select_bodies), select_bodies
+
+            selected_colon = call(worker, "pluto_set_bonds", {"notebook_id": select_id, "values": {"panel": ":details"}}, timeout=120)
+            assert selected_colon["state"]["bonds"]["panel"] == "puiselect-2"
+
+            selected_raw = call(worker, "pluto_set_bonds", {"notebook_id": select_id, "values": {"panel": "puiselect-1"}}, timeout=120)
+            assert selected_raw["state"]["bonds"]["panel"] == "puiselect-1"
+            raw_bodies = [str(cell.get("output", {}).get("body", "")) for cell in selected_raw["state"]["cells"]]
+            assert any("overview" in body for body in raw_bodies), raw_bodies
+
+            select_closed = call(worker, "pluto_close_notebook", {"notebook_id": select_id})
+            assert select_closed["closed"] is True
         finally:
             worker.terminate()
             try:
