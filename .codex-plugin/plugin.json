@@ -1,6 +1,6 @@
 {
   "name": "pluto-pair",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Pair Codex with Pluto.jl notebooks through live-session and headless MCP tools.",
   "author": {
     "name": "Ezra Cerpac",

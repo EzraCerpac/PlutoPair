@@ -1,6 +1,6 @@
 {
   "name": "pluto-pair-codex-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Codex plugin and MCP server for pairing with Pluto.jl notebooks.",
   "type": "module",
